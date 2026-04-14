@@ -248,9 +248,10 @@ for this entire project. Before writing any code:
 
 ## Status
 
-- [ ] **Part 1** — Lexical Structure and Core Syntax Grammar (not started)
-- [ ] Part 2 — Control Flow, Functions, and Pattern Matching Grammar (not started)
-- [ ] Parts 3–100 — In progress
+- [x] **Part 1** — Lexical Structure and Core Syntax Grammar (COMPLETED)
+- [x] **Part 2** — Control Flow, Functions, and Pattern Matching Grammar (COMPLETED)
+- [ ] Part 3 — Type System Rules (not started)
+- [ ] Parts 4–100 — In progress
 
 ---
 

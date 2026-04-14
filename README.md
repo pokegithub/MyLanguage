@@ -252,7 +252,8 @@ for this entire project. Before writing any code:
 - [x] **Part 2** — Control Flow, Functions, and Pattern Matching Grammar (COMPLETED)
 - [x] **Part 3** — Type System Rules (COMPLETED)
 - [x] **Part 4** — Memory Model and Ownership System (COMPLETED)
-- [ ] Parts 5–100 — In progress
+- [x] **Part 5** — Concurrency Model and Runtime Semantics (COMPLETED)
+- [ ] Parts 6–100 — In progress
 
 ---
 

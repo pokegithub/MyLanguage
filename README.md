@@ -248,8 +248,8 @@ for this entire project. Before writing any code:
 
 ## Status
 
-- [x] **Part 1** — Lexical Structure and Core Syntax Grammar ✅ (`spec/part1_lexical_structure_and_core_syntax.md`)
-- [ ] Part 2 — Control Flow, Functions, and Pattern Matching Grammar
+- [ ] **Part 1** — Lexical Structure and Core Syntax Grammar (not started)
+- [ ] Part 2 — Control Flow, Functions, and Pattern Matching Grammar (not started)
 - [ ] Parts 3–100 — In progress
 
 ---

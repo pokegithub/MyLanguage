@@ -250,8 +250,9 @@ for this entire project. Before writing any code:
 
 - [x] **Part 1** — Lexical Structure and Core Syntax Grammar (COMPLETED)
 - [x] **Part 2** — Control Flow, Functions, and Pattern Matching Grammar (COMPLETED)
-- [ ] Part 3 — Type System Rules (not started)
-- [ ] Parts 4–100 — In progress
+- [x] **Part 3** — Type System Rules (COMPLETED)
+- [ ] Part 4 — Memory Model and Ownership System (not started)
+- [ ] Parts 5–100 — In progress
 
 ---
 

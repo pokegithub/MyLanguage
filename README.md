@@ -4,6 +4,20 @@
 
 ---
 
+# ⚠️ CRITICAL — READ THIS BEFORE DOING ANYTHING
+
+This README is the Master Delivery Plan and source of truth 
+for this entire project. Before writing any code:
+
+1. Read this entire file from top to bottom
+2. Identify the current part being worked on
+3. Stay 100% consistent with all decisions documented here
+4. All code must be production-quality, zero placeholders, 
+   zero simplified versions, zero AI fingerprints
+5. All changes must be committed to this repository
+
+---
+
 ## Master Delivery Plan
 
 **Total Estimated Parts:** 100

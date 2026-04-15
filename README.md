@@ -253,7 +253,8 @@ for this entire project. Before writing any code:
 - [x] **Part 3** — Type System Rules (COMPLETED)
 - [x] **Part 4** — Memory Model and Ownership System (COMPLETED)
 - [x] **Part 5** — Concurrency Model and Runtime Semantics (COMPLETED)
-- [ ] Parts 6–100 — In progress
+- [x] **Part 6** — Module System, Error Handling, Interop, and Standard Library API (COMPLETED)
+- [ ] Parts 7–100 — In progress
 
 ---
 

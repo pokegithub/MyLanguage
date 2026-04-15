@@ -68,156 +68,172 @@ impl<'a> Lexer<'a> {
 
     /// Returns the next token from the input stream.
     pub fn next_token(&mut self) -> Token {
-        // Emit pending DEDENT tokens first
-        if self.pending_dedents > 0 {
-            self.pending_dedents -= 1;
-            let span = self.current_span();
-            return Token::new(TokenKind::Dedent, span);
-        }
+        loop {
+            // Emit pending DEDENT tokens first
+            if self.pending_dedents > 0 {
+                self.pending_dedents -= 1;
+                let span = self.current_span();
+                return Token::new(TokenKind::Dedent, span);
+            }
 
-        // Handle indentation at the start of a line
-        if self.at_line_start && self.nesting_depth == 0 {
-            return self.handle_indentation();
-        }
+            // Handle indentation at the start of a line
+            if self.at_line_start && self.nesting_depth == 0 {
+                let result = self.handle_indentation_impl();
+                if let Some(token) = result {
+                    return token;
+                }
+                // If None, continue to scan the next token
+                continue;
+            }
 
-        // Skip whitespace (except newlines)
-        self.skip_horizontal_whitespace();
+            // Skip whitespace (except newlines)
+            self.skip_horizontal_whitespace();
 
-        let start_pos = self.pos;
+            let start_pos = self.pos;
 
-        // Check for EOF
-        let ch = match self.peek() {
-            Some(c) => c,
-            None => {
-                // Emit final DEDENTs before EOF
-                if self.indent_stack.len() > 1 {
-                    self.indent_stack.pop();
-                    self.pending_dedents = self.indent_stack.len() - 1;
-                    if self.pending_dedents > 0 {
-                        self.pending_dedents -= 1;
-                        return Token::new(TokenKind::Dedent, self.current_span());
+            // Check for EOF
+            let ch = match self.peek() {
+                Some(c) => c,
+                None => {
+                    // Emit final DEDENTs before EOF
+                    if self.indent_stack.len() > 1 {
+                        self.indent_stack.pop();
+                        self.pending_dedents = self.indent_stack.len() - 1;
+                        if self.pending_dedents > 0 {
+                            self.pending_dedents -= 1;
+                            return Token::new(TokenKind::Dedent, self.current_span());
+                        }
+                    }
+                    return Token::new(TokenKind::Eof, self.current_span());
+                }
+            };
+
+            // Handle different token types
+            let kind = match ch {
+                // Newline
+                '\n' | '\r' => self.scan_newline(),
+
+                // Comments and Hash
+                '#' => {
+                    if self.peek_ahead(1) == Some('#') {
+                        self.scan_doc_comment();
+                        continue;  // Skip comment and continue loop
+                    } else if self.peek_ahead(1) == Some('[') {
+                        // This is a hash symbol for attributes, not a comment
+                        self.advance();
+                        TokenKind::Hash
+                    } else {
+                        self.scan_line_comment();
+                        continue;  // Skip comment and continue loop
                     }
                 }
-                return Token::new(TokenKind::Eof, self.current_span());
-            }
-        };
-
-        // Handle different token types
-        let kind = match ch {
-            // Newline
-            '\n' | '\r' => self.scan_newline(),
-
-            // Comments
-            '#' => {
-                if self.peek_ahead(1) == Some('#') {
-                    self.scan_doc_comment()
-                } else {
-                    self.scan_line_comment()
+                '/' if self.peek_ahead(1) == Some('*') => {
+                    self.scan_block_comment();
+                    continue;  // Skip comment and continue loop
                 }
-            }
-            '/' if self.peek_ahead(1) == Some('*') => self.scan_block_comment(),
 
-            // String literals
-            '"' => self.scan_string_literal(),
-            '\'' => self.scan_char_literal(),
-            'r' if self.peek_ahead(1) == Some('"') || self.peek_ahead(1) == Some('#') => {
-                self.scan_raw_string()
-            }
-            'f' if self.peek_ahead(1) == Some('"') => self.scan_format_string(),
-            'b' if self.peek_ahead(1) == Some('"') => self.scan_byte_string(),
-
-            // Numbers
-            '0'..='9' => self.scan_number(),
-            '.' if matches!(self.peek_ahead(1), Some('0'..='9')) => self.scan_number(),
-
-            // Identifiers and keywords
-            'a'..='z' | 'A'..='Z' | '_' => self.scan_identifier_or_keyword(),
-
-            // Unicode identifiers
-            c if is_xid_start(c) => self.scan_identifier_or_keyword(),
-
-            // Operators and punctuation
-            '+' => self.scan_plus(),
-            '-' => self.scan_minus(),
-            '*' => self.scan_star(),
-            '/' => self.scan_slash(),
-            '%' => self.scan_percent(),
-            '=' => self.scan_equals(),
-            '!' => self.scan_bang(),
-            '<' => self.scan_less_than(),
-            '>' => self.scan_greater_than(),
-            '&' => self.scan_ampersand(),
-            '|' => self.scan_pipe(),
-            '^' => self.scan_caret(),
-            '~' => {
-                self.advance();
-                TokenKind::Tilde
-            }
-            '?' => self.scan_question(),
-            ':' => self.scan_colon(),
-            '.' => self.scan_dot(),
-            '@' => self.scan_at(),
-            '$' => {
-                self.advance();
-                TokenKind::Dollar
-            }
-
-            // Delimiters
-            '(' => {
-                self.advance();
-                self.nesting_depth += 1;
-                TokenKind::LParen
-            }
-            ')' => {
-                self.advance();
-                if self.nesting_depth > 0 {
-                    self.nesting_depth -= 1;
+                // String literals
+                '"' => self.scan_string_literal(),
+                '\'' => self.scan_char_literal(),
+                'r' if self.peek_ahead(1) == Some('"') || self.peek_ahead(1) == Some('#') => {
+                    self.scan_raw_string()
                 }
-                TokenKind::RParen
-            }
-            '[' => {
-                self.advance();
-                self.nesting_depth += 1;
-                TokenKind::LBracket
-            }
-            ']' => {
-                self.advance();
-                if self.nesting_depth > 0 {
-                    self.nesting_depth -= 1;
-                }
-                TokenKind::RBracket
-            }
-            '{' => {
-                self.advance();
-                self.nesting_depth += 1;
-                TokenKind::LBrace
-            }
-            '}' => {
-                self.advance();
-                if self.nesting_depth > 0 {
-                    self.nesting_depth -= 1;
-                }
-                TokenKind::RBrace
-            }
-            ',' => {
-                self.advance();
-                TokenKind::Comma
-            }
-            ';' => {
-                self.advance();
-                TokenKind::Semicolon
-            }
+                'f' if self.peek_ahead(1) == Some('"') => self.scan_format_string(),
+                'b' if self.peek_ahead(1) == Some('"') => self.scan_byte_string(),
 
-            // Unrecognized character
-            _ => {
-                self.advance();
-                self.error(format!("unexpected character '{}'", ch), start_pos, self.pos);
-                return self.next_token(); // Skip and continue
-            }
-        };
+                // Numbers
+                '0'..='9' => self.scan_number(),
+                '.' if matches!(self.peek_ahead(1), Some('0'..='9')) => self.scan_number(),
 
-        let span = Span::with_file(self.source.id(), start_pos.into(), self.pos.into());
-        Token::new(kind, span)
+                // Identifiers and keywords
+                'a'..='z' | 'A'..='Z' | '_' => self.scan_identifier_or_keyword(),
+
+                // Unicode identifiers
+                c if is_xid_start(c) => self.scan_identifier_or_keyword(),
+
+                // Operators and punctuation
+                '+' => self.scan_plus(),
+                '-' => self.scan_minus(),
+                '*' => self.scan_star(),
+                '/' => self.scan_slash(),
+                '%' => self.scan_percent(),
+                '=' => self.scan_equals(),
+                '!' => self.scan_bang(),
+                '<' => self.scan_less_than(),
+                '>' => self.scan_greater_than(),
+                '&' => self.scan_ampersand(),
+                '|' => self.scan_pipe(),
+                '^' => self.scan_caret(),
+                '~' => {
+                    self.advance();
+                    TokenKind::Tilde
+                }
+                '?' => self.scan_question(),
+                ':' => self.scan_colon(),
+                '.' => self.scan_dot(),
+                '@' => self.scan_at(),
+                '$' => {
+                    self.advance();
+                    TokenKind::Dollar
+                }
+
+                // Delimiters
+                '(' => {
+                    self.advance();
+                    self.nesting_depth += 1;
+                    TokenKind::LParen
+                }
+                ')' => {
+                    self.advance();
+                    if self.nesting_depth > 0 {
+                        self.nesting_depth -= 1;
+                    }
+                    TokenKind::RParen
+                }
+                '[' => {
+                    self.advance();
+                    self.nesting_depth += 1;
+                    TokenKind::LBracket
+                }
+                ']' => {
+                    self.advance();
+                    if self.nesting_depth > 0 {
+                        self.nesting_depth -= 1;
+                    }
+                    TokenKind::RBracket
+                }
+                '{' => {
+                    self.advance();
+                    self.nesting_depth += 1;
+                    TokenKind::LBrace
+                }
+                '}' => {
+                    self.advance();
+                    if self.nesting_depth > 0 {
+                        self.nesting_depth -= 1;
+                    }
+                    TokenKind::RBrace
+                }
+                ',' => {
+                    self.advance();
+                    TokenKind::Comma
+                }
+                ';' => {
+                    self.advance();
+                    TokenKind::Semicolon
+                }
+
+                // Unrecognized character
+                _ => {
+                    self.advance();
+                    self.error(format!("unexpected character '{}'", ch), start_pos, self.pos);
+                    continue;  // Skip and continue loop
+                }
+            };
+
+            let span = Span::with_file(self.source.id(), start_pos.into(), self.pos.into());
+            return Token::new(kind, span);
+        }
     }
 
     /// Peeks at the current character without consuming it.
@@ -273,7 +289,8 @@ impl<'a> Lexer<'a> {
     }
 
     /// Handles indentation at the start of a line.
-    fn handle_indentation(&mut self) -> Token {
+    /// Returns Some(token) if we should emit a token, None if we should continue scanning.
+    fn handle_indentation_impl(&mut self) -> Option<Token> {
         self.at_line_start = false;
 
         let start_pos = self.pos;
@@ -303,10 +320,26 @@ impl<'a> Lexer<'a> {
 
         // Check for blank line or comment-only line
         if let Some(ch) = self.peek() {
-            if ch == '\n' || ch == '\r' || ch == '#' {
-                self.at_line_start = true;
-                return self.next_token();
+            if ch == '\n' || ch == '\r' {
+                // Skip blank line and continue
+                self.scan_newline();
+                return None;
+            } else if ch == '#' {
+                // Check if it's a hash token (e.g., #[attribute]) or a comment (# or ##)
+                let next_ch = self.peek_ahead(1);
+                if next_ch == Some('[') {
+                    // It's a hash token (#[...]), not a comment - continue normally
+                    // Don't set at_line_start, let it be processed as a normal token
+                } else {
+                    // It's a comment-only line (either # or ##) - skip it
+                    // Don't set at_line_start to avoid infinite loop
+                    // The comment will be handled in the main loop
+                    return None;
+                }
             }
+        } else {
+            // EOF on empty line
+            return None;
         }
 
         // Compare with current indentation level
@@ -315,7 +348,7 @@ impl<'a> Lexer<'a> {
         if indent_count > current_level {
             // Indent
             self.indent_stack.push(indent_count);
-            Token::new(TokenKind::Indent, Span::with_file(self.source.id(), start_pos.into(), self.pos.into()))
+            Some(Token::new(TokenKind::Indent, Span::with_file(self.source.id(), start_pos.into(), self.pos.into())))
         } else if indent_count < current_level {
             // Dedent
             let mut dedent_count = 0;
@@ -339,10 +372,10 @@ impl<'a> Lexer<'a> {
             }
 
             self.pending_dedents = dedent_count - 1;
-            Token::new(TokenKind::Dedent, Span::with_file(self.source.id(), start_pos.into(), self.pos.into()))
+            Some(Token::new(TokenKind::Dedent, Span::with_file(self.source.id(), start_pos.into(), self.pos.into())))
         } else {
             // Same indentation level - continue to next token
-            self.next_token()
+            None
         }
     }
 
@@ -361,7 +394,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Scans a line comment (starting with #).
-    fn scan_line_comment(&mut self) -> TokenKind {
+    fn scan_line_comment(&mut self) {
         self.advance(); // consume '#'
 
         // Consume until end of line
@@ -371,13 +404,10 @@ impl<'a> Lexer<'a> {
             }
             self.advance();
         }
-
-        // Comments are skipped - continue to next token
-        self.next_token().kind
     }
 
     /// Scans a documentation comment (starting with ##).
-    fn scan_doc_comment(&mut self) -> TokenKind {
+    fn scan_doc_comment(&mut self) {
         self.advance(); // consume first '#'
         self.advance(); // consume second '#'
 
@@ -388,14 +418,12 @@ impl<'a> Lexer<'a> {
             }
             self.advance();
         }
-
         // Doc comments are also skipped for now
         // TODO: store doc comments for later processing
-        self.next_token().kind
     }
 
     /// Scans a block comment (/* ... */).
-    fn scan_block_comment(&mut self) -> TokenKind {
+    fn scan_block_comment(&mut self) {
         let start_pos = self.pos;
         self.advance(); // consume '/'
         self.advance(); // consume '*'
@@ -427,9 +455,6 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-
-        // Block comments are skipped
-        self.next_token().kind
     }
 
     /// Scans a string literal.
@@ -1568,5 +1593,639 @@ mod tests {
         // Comments are skipped, so we should only see tokens for the code
         assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
         assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "y")));
+    }
+
+    #[test]
+    fn test_block_comment() {
+        let tokens = lex_source("let x = /* block comment */ 42");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "42")));
+    }
+
+    #[test]
+    fn test_nested_block_comment() {
+        let tokens = lex_source("let x = /* outer /* inner */ outer */ 42");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "42")));
+    }
+
+    #[test]
+    fn test_doc_comment() {
+        let tokens = lex_source("## This is a doc comment\nlet x = 42");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
+    }
+
+    #[test]
+    fn test_all_arithmetic_operators() {
+        let tokens = lex_source("+ - * / // % **");
+        assert!(matches!(tokens[0].kind, TokenKind::Plus));
+        assert!(matches!(tokens[1].kind, TokenKind::Minus));
+        assert!(matches!(tokens[2].kind, TokenKind::Star));
+        assert!(matches!(tokens[3].kind, TokenKind::Slash));
+        assert!(matches!(tokens[4].kind, TokenKind::SlashSlash));
+        assert!(matches!(tokens[5].kind, TokenKind::Percent));
+        assert!(matches!(tokens[6].kind, TokenKind::StarStar));
+    }
+
+    #[test]
+    fn test_all_comparison_operators() {
+        let tokens = lex_source("== != < <= > >= <=>");
+        assert!(matches!(tokens[0].kind, TokenKind::EqEq));
+        assert!(matches!(tokens[1].kind, TokenKind::BangEq));
+        assert!(matches!(tokens[2].kind, TokenKind::Lt));
+        assert!(matches!(tokens[3].kind, TokenKind::LtEq));
+        assert!(matches!(tokens[4].kind, TokenKind::Gt));
+        assert!(matches!(tokens[5].kind, TokenKind::GtEq));
+        assert!(matches!(tokens[6].kind, TokenKind::Spaceship));
+    }
+
+    #[test]
+    fn test_all_bitwise_operators() {
+        let tokens = lex_source("& | ^ ~ << >> >>>");
+        assert!(matches!(tokens[0].kind, TokenKind::Ampersand));
+        assert!(matches!(tokens[1].kind, TokenKind::Pipe));
+        assert!(matches!(tokens[2].kind, TokenKind::Caret));
+        assert!(matches!(tokens[3].kind, TokenKind::Tilde));
+        assert!(matches!(tokens[4].kind, TokenKind::LtLt));
+        assert!(matches!(tokens[5].kind, TokenKind::GtGt));
+        assert!(matches!(tokens[6].kind, TokenKind::GtGtGt));
+    }
+
+    #[test]
+    fn test_all_assignment_operators() {
+        let tokens = lex_source("= += -= *= /= //= %= **= &= |= ^= <<= >>= >>>=");
+        assert!(matches!(tokens[0].kind, TokenKind::Eq));
+        assert!(matches!(tokens[1].kind, TokenKind::PlusEq));
+        assert!(matches!(tokens[2].kind, TokenKind::MinusEq));
+        assert!(matches!(tokens[3].kind, TokenKind::StarEq));
+        assert!(matches!(tokens[4].kind, TokenKind::SlashEq));
+        assert!(matches!(tokens[5].kind, TokenKind::SlashSlashEq));
+        assert!(matches!(tokens[6].kind, TokenKind::PercentEq));
+        assert!(matches!(tokens[7].kind, TokenKind::StarStarEq));
+        assert!(matches!(tokens[8].kind, TokenKind::AmpersandEq));
+        assert!(matches!(tokens[9].kind, TokenKind::PipeEq));
+        assert!(matches!(tokens[10].kind, TokenKind::CaretEq));
+        assert!(matches!(tokens[11].kind, TokenKind::LtLtEq));
+        assert!(matches!(tokens[12].kind, TokenKind::GtGtEq));
+        assert!(matches!(tokens[13].kind, TokenKind::GtGtGtEq));
+    }
+
+    #[test]
+    fn test_special_operators() {
+        let tokens = lex_source("-> => .. ..= ... ? ?? ?: :: @ $ |> <|");
+        assert!(matches!(tokens[0].kind, TokenKind::Arrow));
+        assert!(matches!(tokens[1].kind, TokenKind::FatArrow));
+        assert!(matches!(tokens[2].kind, TokenKind::DotDot));
+        assert!(matches!(tokens[3].kind, TokenKind::DotDotEq));
+        assert!(matches!(tokens[4].kind, TokenKind::DotDotDot));
+        assert!(matches!(tokens[5].kind, TokenKind::Question));
+        assert!(matches!(tokens[6].kind, TokenKind::QuestionQuestion));
+        assert!(matches!(tokens[7].kind, TokenKind::QuestionColon));
+        assert!(matches!(tokens[8].kind, TokenKind::ColonColon));
+        assert!(matches!(tokens[9].kind, TokenKind::At));
+        assert!(matches!(tokens[10].kind, TokenKind::Dollar));
+        assert!(matches!(tokens[11].kind, TokenKind::PipeGt));
+        assert!(matches!(tokens[12].kind, TokenKind::LtPipe));
+    }
+
+    #[test]
+    fn test_walrus_operator() {
+        let tokens = lex_source("x := 42");
+        assert!(matches!(tokens[0].kind, TokenKind::Ident(ref s) if s == "x"));
+        assert!(matches!(tokens[1].kind, TokenKind::ColonEq));
+    }
+
+    #[test]
+    fn test_all_declaration_keywords() {
+        let tokens = lex_source("def let var const struct enum trait impl type class interface");
+        assert!(matches!(tokens[0].kind, TokenKind::Def));
+        assert!(matches!(tokens[1].kind, TokenKind::Let));
+        assert!(matches!(tokens[2].kind, TokenKind::Var));
+        assert!(matches!(tokens[3].kind, TokenKind::Const));
+        assert!(matches!(tokens[4].kind, TokenKind::Struct));
+        assert!(matches!(tokens[5].kind, TokenKind::Enum));
+        assert!(matches!(tokens[6].kind, TokenKind::Trait));
+        assert!(matches!(tokens[7].kind, TokenKind::Impl));
+        assert!(matches!(tokens[8].kind, TokenKind::Type));
+        assert!(matches!(tokens[9].kind, TokenKind::Class));
+        assert!(matches!(tokens[10].kind, TokenKind::Interface));
+    }
+
+    #[test]
+    fn test_all_control_flow_keywords() {
+        let tokens = lex_source("if elif else match case for while loop break continue return yield await");
+        assert!(matches!(tokens[0].kind, TokenKind::If));
+        assert!(matches!(tokens[1].kind, TokenKind::Elif));
+        assert!(matches!(tokens[2].kind, TokenKind::Else));
+        assert!(matches!(tokens[3].kind, TokenKind::Match));
+        assert!(matches!(tokens[4].kind, TokenKind::Case));
+        assert!(matches!(tokens[5].kind, TokenKind::For));
+        assert!(matches!(tokens[6].kind, TokenKind::While));
+        assert!(matches!(tokens[7].kind, TokenKind::Loop));
+        assert!(matches!(tokens[8].kind, TokenKind::Break));
+        assert!(matches!(tokens[9].kind, TokenKind::Continue));
+        assert!(matches!(tokens[10].kind, TokenKind::Return));
+        assert!(matches!(tokens[11].kind, TokenKind::Yield));
+        assert!(matches!(tokens[12].kind, TokenKind::Await));
+    }
+
+    #[test]
+    fn test_all_type_keywords() {
+        let tokens = lex_source("int float bool str char i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64");
+        assert!(matches!(tokens[0].kind, TokenKind::Int));
+        assert!(matches!(tokens[1].kind, TokenKind::Float));
+        assert!(matches!(tokens[2].kind, TokenKind::Bool));
+        assert!(matches!(tokens[3].kind, TokenKind::Str));
+        assert!(matches!(tokens[4].kind, TokenKind::Char));
+        assert!(matches!(tokens[5].kind, TokenKind::I8));
+        assert!(matches!(tokens[6].kind, TokenKind::I16));
+        assert!(matches!(tokens[7].kind, TokenKind::I32));
+        assert!(matches!(tokens[8].kind, TokenKind::I64));
+        assert!(matches!(tokens[9].kind, TokenKind::I128));
+        assert!(matches!(tokens[10].kind, TokenKind::ISize));
+        assert!(matches!(tokens[11].kind, TokenKind::U8));
+        assert!(matches!(tokens[12].kind, TokenKind::U16));
+        assert!(matches!(tokens[13].kind, TokenKind::U32));
+        assert!(matches!(tokens[14].kind, TokenKind::U64));
+        assert!(matches!(tokens[15].kind, TokenKind::U128));
+        assert!(matches!(tokens[16].kind, TokenKind::USize));
+        assert!(matches!(tokens[17].kind, TokenKind::F32));
+        assert!(matches!(tokens[18].kind, TokenKind::F64));
+    }
+
+    #[test]
+    fn test_module_and_visibility_keywords() {
+        let tokens = lex_source("import from as export pub priv protected");
+        assert!(matches!(tokens[0].kind, TokenKind::Import));
+        assert!(matches!(tokens[1].kind, TokenKind::From));
+        assert!(matches!(tokens[2].kind, TokenKind::As));
+        assert!(matches!(tokens[3].kind, TokenKind::Export));
+        assert!(matches!(tokens[4].kind, TokenKind::Pub));
+        assert!(matches!(tokens[5].kind, TokenKind::Priv));
+        assert!(matches!(tokens[6].kind, TokenKind::Protected));
+    }
+
+    #[test]
+    fn test_memory_and_ownership_keywords() {
+        let tokens = lex_source("ref mut move copy clone box alloc defer drop static unsafe");
+        assert!(matches!(tokens[0].kind, TokenKind::Ref));
+        assert!(matches!(tokens[1].kind, TokenKind::Mut));
+        assert!(matches!(tokens[2].kind, TokenKind::Move));
+        assert!(matches!(tokens[3].kind, TokenKind::Copy));
+        assert!(matches!(tokens[4].kind, TokenKind::Clone));
+        assert!(matches!(tokens[5].kind, TokenKind::Box));
+        assert!(matches!(tokens[6].kind, TokenKind::Alloc));
+        assert!(matches!(tokens[7].kind, TokenKind::Defer));
+        assert!(matches!(tokens[8].kind, TokenKind::Drop));
+        assert!(matches!(tokens[9].kind, TokenKind::Static));
+        assert!(matches!(tokens[10].kind, TokenKind::Unsafe));
+    }
+
+    #[test]
+    fn test_concurrency_keywords() {
+        let tokens = lex_source("async spawn send recv select");
+        assert!(matches!(tokens[0].kind, TokenKind::Async));
+        assert!(matches!(tokens[1].kind, TokenKind::Spawn));
+        assert!(matches!(tokens[2].kind, TokenKind::Send));
+        assert!(matches!(tokens[3].kind, TokenKind::Recv));
+        assert!(matches!(tokens[4].kind, TokenKind::Select));
+    }
+
+    #[test]
+    fn test_boolean_and_special_literal_keywords() {
+        let tokens = lex_source("true false none null");
+        assert!(matches!(tokens[0].kind, TokenKind::True));
+        assert!(matches!(tokens[1].kind, TokenKind::False));
+        assert!(matches!(tokens[2].kind, TokenKind::None));
+        assert!(matches!(tokens[3].kind, TokenKind::Null));
+    }
+
+    #[test]
+    fn test_operator_keywords() {
+        let tokens = lex_source("and or not in is");
+        assert!(matches!(tokens[0].kind, TokenKind::And));
+        assert!(matches!(tokens[1].kind, TokenKind::Or));
+        assert!(matches!(tokens[2].kind, TokenKind::Not));
+        assert!(matches!(tokens[3].kind, TokenKind::In));
+        assert!(matches!(tokens[4].kind, TokenKind::Is));
+    }
+
+    #[test]
+    fn test_other_keywords() {
+        let tokens = lex_source("self Self super where with try catch finally raise assert lambda comptime macro extern");
+        assert!(matches!(tokens[0].kind, TokenKind::SelfLower));
+        assert!(matches!(tokens[1].kind, TokenKind::SelfUpper));
+        assert!(matches!(tokens[2].kind, TokenKind::Super));
+        assert!(matches!(tokens[3].kind, TokenKind::Where));
+        assert!(matches!(tokens[4].kind, TokenKind::With));
+        assert!(matches!(tokens[5].kind, TokenKind::Try));
+        assert!(matches!(tokens[6].kind, TokenKind::Catch));
+        assert!(matches!(tokens[7].kind, TokenKind::Finally));
+        assert!(matches!(tokens[8].kind, TokenKind::Raise));
+        assert!(matches!(tokens[9].kind, TokenKind::Assert));
+        assert!(matches!(tokens[10].kind, TokenKind::Lambda));
+        assert!(matches!(tokens[11].kind, TokenKind::Comptime));
+        assert!(matches!(tokens[12].kind, TokenKind::Macro));
+        assert!(matches!(tokens[13].kind, TokenKind::Extern));
+    }
+
+    #[test]
+    fn test_integer_with_suffixes() {
+        let tokens = lex_source("42i8 1000i16 50000i32 9999999i64 123456789i128 100isize");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::I8))) if s == "42"));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::I16))) if s == "1000"));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::I32))) if s == "50000"));
+        assert!(matches!(tokens[3].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::I64))) if s == "9999999"));
+        assert!(matches!(tokens[4].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::I128))) if s == "123456789"));
+        assert!(matches!(tokens[5].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::ISize))) if s == "100"));
+    }
+
+    #[test]
+    fn test_unsigned_integer_with_suffixes() {
+        let tokens = lex_source("42u8 1000u16 50000u32 9999999u64 123456789u128 100usize");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::U8))) if s == "42"));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::U16))) if s == "1000"));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::U32))) if s == "50000"));
+        assert!(matches!(tokens[3].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::U64))) if s == "9999999"));
+        assert!(matches!(tokens[4].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::U128))) if s == "123456789"));
+        assert!(matches!(tokens[5].kind, TokenKind::Literal(Literal::Integer(ref s, Some(IntSuffix::USize))) if s == "100"));
+    }
+
+    #[test]
+    fn test_float_with_suffixes() {
+        let tokens = lex_source("3.14f32 2.71828f64");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Float(ref s, Some(FloatSuffix::F32))) if s == "3.14"));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Float(ref s, Some(FloatSuffix::F64))) if s == "2.71828"));
+    }
+
+    #[test]
+    fn test_integer_with_underscores() {
+        let tokens = lex_source("1_000_000 0b1010_1010 0o755_644 0xDEAD_BEEF");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "1000000"));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "0b10101010"));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "0o755644"));
+        assert!(matches!(tokens[3].kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "0xDEADBEEF"));
+    }
+
+    #[test]
+    fn test_float_with_exponent() {
+        let tokens = lex_source("1e10 2.5e-3 3.14E+2");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Float(ref s, None)) if s == "1e10"));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Float(ref s, None)) if s == "2.5e-3"));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Float(ref s, None)) if s == "3.14e+2"));
+    }
+
+    #[test]
+    fn test_string_with_escapes() {
+        let tokens = lex_source(r#""hello\nworld\t\"quoted\"""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::String(ref s)) if s == "hello\nworld\t\"quoted\""));
+    }
+
+    #[test]
+    fn test_string_with_unicode_escape() {
+        let tokens = lex_source(r#""\u{1F600}""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::String(ref s)) if s == "😀"));
+    }
+
+    #[test]
+    fn test_string_with_hex_escape() {
+        let tokens = lex_source(r#""\x41\x42\x43""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::String(ref s)) if s == "ABC"));
+    }
+
+    #[test]
+    fn test_heredoc_string() {
+        let tokens = lex_source("\"\"\"This is\na multiline\nstring\"\"\"");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Heredoc(ref s)) if s.contains("multiline")));
+    }
+
+    #[test]
+    fn test_raw_string_basic() {
+        let tokens = lex_source(r#"r"C:\path\to\file""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::RawString(0, ref s)) if s == r"C:\path\to\file"));
+    }
+
+    #[test]
+    fn test_raw_string_with_hashes() {
+        let tokens = lex_source(r###"r#"string with "quotes" inside"#"###);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::RawString(1, ref s)) if s == r#"string with "quotes" inside"#));
+    }
+
+    #[test]
+    fn test_format_string_basic() {
+        let tokens = lex_source(r#"f"Hello {name}!""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::FormatString(ref s)) if s.contains("{name}")));
+    }
+
+    #[test]
+    fn test_format_string_with_expression() {
+        let tokens = lex_source(r#"f"Result: {x + y}""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::FormatString(ref s)) if s.contains("{x + y}")));
+    }
+
+    #[test]
+    fn test_format_string_nested_braces() {
+        let tokens = lex_source(r#"f"Data: {data.get("key")}""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::FormatString(_))));
+    }
+
+    #[test]
+    fn test_byte_string() {
+        let tokens = lex_source(r#"b"hello""#);
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::ByteString(ref bytes)) if bytes == b"hello"));
+    }
+
+    #[test]
+    fn test_char_literal() {
+        let tokens = lex_source("'a' 'Z' '0'");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Char('a'))));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Char('Z'))));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Char('0'))));
+    }
+
+    #[test]
+    fn test_char_literal_with_escape() {
+        let tokens = lex_source("'\\n' '\\t' '\\'' '\\\"' '\\\\'");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Char('\n'))));
+        assert!(matches!(tokens[1].kind, TokenKind::Literal(Literal::Char('\t'))));
+        assert!(matches!(tokens[2].kind, TokenKind::Literal(Literal::Char('\''))));
+        assert!(matches!(tokens[3].kind, TokenKind::Literal(Literal::Char('"'))));
+        assert!(matches!(tokens[4].kind, TokenKind::Literal(Literal::Char('\\'))));
+    }
+
+    #[test]
+    fn test_char_literal_unicode() {
+        let tokens = lex_source(r"'\u{03B1}'");
+        assert!(matches!(tokens[0].kind, TokenKind::Literal(Literal::Char('α'))));
+    }
+
+    #[test]
+    fn test_delimiters() {
+        let tokens = lex_source("( ) [ ] { } , ; :");
+        assert!(matches!(tokens[0].kind, TokenKind::LParen));
+        assert!(matches!(tokens[1].kind, TokenKind::RParen));
+        assert!(matches!(tokens[2].kind, TokenKind::LBracket));
+        assert!(matches!(tokens[3].kind, TokenKind::RBracket));
+        assert!(matches!(tokens[4].kind, TokenKind::LBrace));
+        assert!(matches!(tokens[5].kind, TokenKind::RBrace));
+        assert!(matches!(tokens[6].kind, TokenKind::Comma));
+        assert!(matches!(tokens[7].kind, TokenKind::Semicolon));
+        assert!(matches!(tokens[8].kind, TokenKind::Colon));
+    }
+
+    #[test]
+    fn test_nesting_depth_tracking() {
+        let source = "def foo():\n    if (x > 0 and\n        y > 0):\n        print(x)";
+        let tokens = lex_source(source);
+        // Should have parentheses tokens
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::LParen)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::RParen)));
+    }
+
+    #[test]
+    fn test_indentation_increase() {
+        let source = "def foo():\n    return 42";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Indent)));
+    }
+
+    #[test]
+    fn test_indentation_decrease() {
+        let source = "def foo():\n    x = 1\n    y = 2\nz = 3";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Indent)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Dedent)));
+    }
+
+    #[test]
+    fn test_multiple_dedents() {
+        let source = "if x:\n    if y:\n        if z:\n            foo()\nbar()";
+        let tokens = lex_source(source);
+        let dedent_count = tokens.iter().filter(|t| matches!(t.kind, TokenKind::Dedent)).count();
+        assert!(dedent_count >= 3);
+    }
+
+    #[test]
+    fn test_blank_lines_ignored() {
+        let source = "let x = 1\n\n\nlet y = 2";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "y")));
+    }
+
+    #[test]
+    fn test_unicode_identifier() {
+        let tokens = lex_source("let 変数 = 42");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "変数")));
+    }
+
+    #[test]
+    fn test_unicode_identifier_greek() {
+        let tokens = lex_source("let α = 3.14");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "α")));
+    }
+
+    #[test]
+    fn test_unicode_identifier_emoji_not_allowed() {
+        // Emojis are not XID_Start, so this should be an error
+        let tokens = lex_source("let 😀 = 42");
+        // The emoji should cause an error and be skipped
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Literal(Literal::Integer(ref s, None)) if s == "42")));
+    }
+
+    #[test]
+    fn test_raw_identifier() {
+        let tokens = lex_source("@let @class @def");
+        // Raw identifiers turn keywords into identifiers
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "let")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "class")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "def")));
+    }
+
+    #[test]
+    fn test_hash_symbol() {
+        let tokens = lex_source("#[derive(Debug)]");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Hash)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::LBracket)));
+    }
+
+    #[test]
+    fn test_dot_access() {
+        let tokens = lex_source("obj.field.method()");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Dot)));
+    }
+
+    #[test]
+    fn test_range_operators() {
+        let tokens = lex_source("0..10 0..=10");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::DotDot)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::DotDotEq)));
+    }
+
+    #[test]
+    fn test_variadic_operator() {
+        let tokens = lex_source("def foo(args...):");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::DotDotDot)));
+    }
+
+    #[test]
+    fn test_pipe_operator() {
+        let tokens = lex_source("value |> func |> other");
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::PipeGt)).count() == 2);
+    }
+
+    #[test]
+    fn test_reverse_pipe_operator() {
+        let tokens = lex_source("func <| value");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::LtPipe)));
+    }
+
+    #[test]
+    fn test_optional_chaining() {
+        let tokens = lex_source("obj?.field?.method()");
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::Question)).count() == 2);
+    }
+
+    #[test]
+    fn test_null_coalescing() {
+        let tokens = lex_source("value ?? default");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::QuestionQuestion)));
+    }
+
+    #[test]
+    fn test_ternary_operator() {
+        let tokens = lex_source("condition ?: fallback");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::QuestionColon)));
+    }
+
+    #[test]
+    fn test_path_separator() {
+        let tokens = lex_source("std::io::File");
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::ColonColon)).count() == 2);
+    }
+
+    #[test]
+    fn test_newline_handling() {
+        let tokens = lex_source("let x = 1\nlet y = 2");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Newline)));
+    }
+
+    #[test]
+    fn test_crlf_newline() {
+        let tokens = lex_source("let x = 1\r\nlet y = 2");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Newline)));
+    }
+
+    #[test]
+    fn test_eof_token() {
+        let tokens = lex_source("let x = 42");
+        assert!(matches!(tokens.last().unwrap().kind, TokenKind::Eof));
+    }
+
+    #[test]
+    fn test_eof_with_dedents() {
+        let tokens = lex_source("def foo():\n    if x:\n        y = 1");
+        // Should emit DEDENT tokens before EOF
+        assert!(matches!(tokens.last().unwrap().kind, TokenKind::Eof));
+        let last_few = &tokens[tokens.len().saturating_sub(5)..];
+        assert!(last_few.iter().any(|t| matches!(t.kind, TokenKind::Dedent)));
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let source = "result = (a + b) * c / (d - e) ** 2";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "result")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Eq)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Plus)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Star)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Slash)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Minus)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::StarStar)));
+    }
+
+    #[test]
+    fn test_function_definition() {
+        let source = "def add(a: int, b: int) -> int:\n    return a + b";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Def)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "add")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Arrow)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Return)));
+    }
+
+    #[test]
+    fn test_match_expression() {
+        let source = "match value:\n    case 1 => foo()\n    case 2 => bar()";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Match)));
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::Case)).count() == 2);
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::FatArrow)).count() == 2);
+    }
+
+    #[test]
+    fn test_async_function() {
+        let source = "async def fetch():\n    await request()";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Async)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Await)));
+    }
+
+    #[test]
+    fn test_spawn_expression() {
+        let source = "task = spawn worker()";
+        let tokens = lex_source(source);
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Spawn)));
+    }
+
+    #[test]
+    fn test_channel_operations() {
+        let source = "chan.send(value)\nchan.recv()";
+        let tokens = lex_source(source);
+        // send and recv are method names, not keywords in this context
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "chan")));
+        assert!(tokens.iter().filter(|t| matches!(t.kind, TokenKind::Dot)).count() >= 2);
+    }
+
+    #[test]
+    fn test_error_recovery_invalid_char() {
+        let tokens = lex_source("let x = 1 \u{0007} let y = 2");
+        // Should recover and continue parsing
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "x")));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Ident(ref s) if s == "y")));
+    }
+
+    #[test]
+    fn test_comprehensive_program() {
+        let source = r#"
+import std::io
+
+def main():
+    let x: int = 42
+    let y = x * 2
+
+    if y > 50:
+        print(f"y is {y}")
+    else:
+        print("y is small")
+
+    for i in 0..10:
+        if i % 2 == 0:
+            continue
+        print(i)
+"#;
+        let tokens = lex_source(source);
+
+        // Verify we got all major token types
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Import)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Def)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Let)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::If)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Else)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::For)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::In)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Continue)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Literal(Literal::FormatString(_)))));
+        assert!(matches!(tokens.last().unwrap().kind, TokenKind::Eof));
     }
 }

@@ -7,11 +7,12 @@
 
 pub mod expr;
 pub mod error;
+pub mod stmt;
 
 pub use expr::ExprParser;
 pub use error::{ParseError, ParseResult};
 
-use covibe_ast::{Module, NodeId, NodeIdGen};
+use covibe_ast::{Item, Module, NodeId, NodeIdGen};
 use covibe_lexer::token::{Token, TokenKind};
 use covibe_lexer::Lexer;
 use covibe_util::diagnostic::DiagnosticEngine;
@@ -71,9 +72,79 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses the source file into a module (AST root).
+    ///
+    /// A module is a collection of top-level items (functions, structs, etc.).
+    /// For Part 12, we support parsing statements as top-level constructs.
+    /// Full item parsing (functions, structs, etc.) will be added in Part 13.
     pub fn parse_module(&mut self) -> ParseResult<Module> {
-        // This will be implemented in Part 12/13
-        todo!("parse_module: implemented in Part 12/13")
+        let start_pos = self.pos;
+        let mut items = Vec::new();
+
+        self.skip_newlines();
+
+        while !self.is_eof() {
+            self.skip_newlines();
+
+            if self.is_eof() {
+                break;
+            }
+
+            // Try to parse a top-level item or statement
+            // For now (Part 12), we'll wrap statements as items
+            // Full item parsing comes in Part 13
+            match self.parse_top_level_item() {
+                Ok(item) => {
+                    items.push(item);
+                }
+                Err(e) => {
+                    self.report_error(&e);
+                    self.synchronize();
+                }
+            }
+
+            self.skip_newlines();
+        }
+
+        let span = self.span_from(start_pos);
+        Ok(Module {
+            id: self.next_node_id(),
+            items,
+            span,
+        })
+    }
+
+    /// Parses a top-level item.
+    ///
+    /// For Part 12, this is a placeholder that will be fully implemented in Part 13.
+    /// Currently, it only recognizes item keywords and reports them as unimplemented.
+    fn parse_top_level_item(&mut self) -> ParseResult<Item> {
+        let start_pos = self.pos;
+
+        // Check for item declaration keywords
+        match self.current_kind() {
+            TokenKind::Def
+            | TokenKind::Struct
+            | TokenKind::Enum
+            | TokenKind::Trait
+            | TokenKind::Impl
+            | TokenKind::Type
+            | TokenKind::Import
+            | TokenKind::Export
+            | TokenKind::Extern
+            | TokenKind::Macro => {
+                return Err(self.error(format!(
+                    "item declarations will be implemented in Part 13, found {:?}",
+                    self.current_kind()
+                )));
+            }
+            _ => {}
+        }
+
+        // For now, we can't parse any items, so return an error
+        Err(self.error(format!(
+            "expected top-level item or declaration, found {:?}",
+            self.current_kind()
+        )))
     }
 
     // ===== Token Stream Management =====

@@ -91,6 +91,8 @@ impl Token {
                 | TokenKind::Send
                 | TokenKind::Recv
                 | TokenKind::Select
+                | TokenKind::To
+                | TokenKind::Default
                 | TokenKind::True
                 | TokenKind::False
                 | TokenKind::None
@@ -109,6 +111,7 @@ impl Token {
                 | TokenKind::Catch
                 | TokenKind::Finally
                 | TokenKind::Raise
+                | TokenKind::Throw
                 | TokenKind::Assert
                 | TokenKind::Lambda
                 | TokenKind::Comptime
@@ -343,6 +346,10 @@ pub enum TokenKind {
     Recv,
     /// `select` keyword
     Select,
+    /// `to` keyword (for select send operations)
+    To,
+    /// `default` keyword (for select default case)
+    Default,
 
     // Keywords - Boolean and special literals
     /// `true` keyword
@@ -385,6 +392,8 @@ pub enum TokenKind {
     Finally,
     /// `raise` keyword
     Raise,
+    /// `throw` keyword (alias for raise)
+    Throw,
     /// `assert` keyword
     Assert,
     /// `lambda` keyword
@@ -614,6 +623,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Send => write!(f, "'send'"),
             TokenKind::Recv => write!(f, "'recv'"),
             TokenKind::Select => write!(f, "'select'"),
+            TokenKind::To => write!(f, "'to'"),
+            TokenKind::Default => write!(f, "'default'"),
             TokenKind::True => write!(f, "'true'"),
             TokenKind::False => write!(f, "'false'"),
             TokenKind::None => write!(f, "'none'"),
@@ -632,6 +643,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Catch => write!(f, "'catch'"),
             TokenKind::Finally => write!(f, "'finally'"),
             TokenKind::Raise => write!(f, "'raise'"),
+            TokenKind::Throw => write!(f, "'throw'"),
             TokenKind::Assert => write!(f, "'assert'"),
             TokenKind::Lambda => write!(f, "'lambda'"),
             TokenKind::Comptime => write!(f, "'comptime'"),

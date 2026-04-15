@@ -6,9 +6,11 @@
 //! The parser transforms a stream of tokens from the lexer into an Abstract Syntax Tree (AST).
 
 pub mod expr;
+pub mod stmt;
 pub mod error;
 
 pub use expr::ExprParser;
+pub use stmt::StmtParser;
 pub use error::{ParseError, ParseResult};
 
 use covibe_ast::{Module, NodeId, NodeIdGen};

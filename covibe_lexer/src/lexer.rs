@@ -325,13 +325,15 @@ impl<'a> Lexer<'a> {
                 self.scan_newline();
                 return None;
             } else if ch == '#' {
-                // Check if it's a hash token (e.g., #[attribute]) or a comment
-                if self.peek_ahead(1) == Some('[') {
-                    // It's a hash token, not a comment - continue normally
-                    // Don't set at_line_start
+                // Check if it's a hash token (e.g., #[attribute]) or a comment (# or ##)
+                let next_ch = self.peek_ahead(1);
+                if next_ch == Some('[') {
+                    // It's a hash token (#[...]), not a comment - continue normally
+                    // Don't set at_line_start, let it be processed as a normal token
                 } else {
-                    // It's a comment-only line - will be handled in main loop
-                    self.at_line_start = true;
+                    // It's a comment-only line (either # or ##) - skip it
+                    // Don't set at_line_start to avoid infinite loop
+                    // The comment will be handled in the main loop
                     return None;
                 }
             }

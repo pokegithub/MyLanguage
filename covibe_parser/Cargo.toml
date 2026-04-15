@@ -8,3 +8,5 @@ repository.workspace = true
 
 [dependencies]
 covibe_util = { workspace = true }
+covibe_lexer = { workspace = true }
+covibe_ast = { workspace = true }

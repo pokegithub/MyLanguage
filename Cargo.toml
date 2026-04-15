@@ -1,0 +1,123 @@
+[workspace]
+resolver = "2"
+members = [
+    "covibe_util",
+    "covibe_lexer",
+    "covibe_parser",
+    "covibe_ast",
+    "covibe_semantic",
+    "covibe_mir",
+    "covibe_codegen",
+    "covibe_driver",
+    "covibe_runtime",
+    "covibe_stdlib",
+    "covibe_package",
+    "covibe_formatter",
+    "covibe_linter",
+    "covibe_lsp",
+    "covibe_repl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["CoVibe Language Team"]
+license = "MIT"
+repository = "https://github.com/pokegithub/MyLanguage"
+
+[workspace.dependencies]
+# LLVM bindings
+inkwell = { version = "0.4", features = ["llvm16-0"] }
+
+# Error reporting and diagnostics
+ariadne = "0.4"
+codespan-reporting = "0.11"
+
+# String interning and arena allocation
+lasso = "0.7"
+bumpalo = "3.14"
+
+# Parsing utilities
+logos = "0.13"
+unicode-xid = "0.2"
+unicode-segmentation = "1.10"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# CLI and argument parsing
+clap = { version = "4.4", features = ["derive", "cargo"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+futures = "0.3"
+
+# LSP support
+tower-lsp = "0.20"
+lsp-types = "0.95"
+
+# File system and path utilities
+walkdir = "2.4"
+globset = "0.4"
+ignore = "0.4"
+
+# Hashing and collections
+rustc-hash = "1.1"
+indexmap = "2.1"
+
+# Parallelism
+rayon = "1.8"
+crossbeam = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Testing
+proptest = "1.4"
+criterion = "0.5"
+
+# Network and HTTP (for package manager)
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+hyper = "0.14"
+
+# Crypto
+sha2 = "0.10"
+blake3 = "1.5"
+
+# Platform-specific
+libc = "0.2"
+once_cell = "1.19"
+parking_lot = "0.12"
+
+# Internal workspace crates
+covibe_util = { path = "covibe_util" }
+covibe_lexer = { path = "covibe_lexer" }
+covibe_parser = { path = "covibe_parser" }
+covibe_ast = { path = "covibe_ast" }
+covibe_semantic = { path = "covibe_semantic" }
+covibe_mir = { path = "covibe_mir" }
+covibe_codegen = { path = "covibe_codegen" }
+covibe_driver = { path = "covibe_driver" }
+covibe_runtime = { path = "covibe_runtime" }
+covibe_stdlib = { path = "covibe_stdlib" }
+covibe_package = { path = "covibe_package" }
+covibe_formatter = { path = "covibe_formatter" }
+covibe_linter = { path = "covibe_linter" }
+covibe_lsp = { path = "covibe_lsp" }
+covibe_repl = { path = "covibe_repl" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.bench]
+inherits = "release"

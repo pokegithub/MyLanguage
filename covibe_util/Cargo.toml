@@ -1,0 +1,17 @@
+[package]
+name = "covibe_util"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ariadne = { workspace = true }
+codespan-reporting = { workspace = true }
+rustc-hash = { workspace = true }
+parking_lot = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

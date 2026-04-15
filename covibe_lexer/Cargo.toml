@@ -8,3 +8,4 @@ repository.workspace = true
 
 [dependencies]
 covibe_util = { workspace = true }
+unicode-xid = { workspace = true }
